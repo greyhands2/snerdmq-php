@@ -1,0 +1,38 @@
+{
+    "name": "greyhands2/snerdmq",
+    "description": "A zero-config, persistent background job queue for PHP. Ditch Redis for a lightweight Rust daemon.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Greyhands2",
+            "email": "developer@example.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.0"
+    },
+    "require-dev": {},
+    "autoload": {
+        "psr-4": {
+            "Snerdmq\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Snerdmq\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "@php bin/snerdmq-install.php"
+        ],
+        "post-update-cmd": [
+            "@php bin/snerdmq-install.php"
+        ],
+        "test": "php tests/run_tests.php"
+    },
+    "bin": [
+        "bin/snerdmq-install.php"
+    ]
+}
