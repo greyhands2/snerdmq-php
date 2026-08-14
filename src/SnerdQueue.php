@@ -11,6 +11,7 @@ class SnerdQueue
     private $process;
     private $pipes;
     private $is_shutting_down = false;
+    private $pending_acks = [];
 
     public function __construct(?string $binary_path = null, ?string $storage_path = null)
     {
@@ -70,7 +71,7 @@ class SnerdQueue
         }
     }
 
-    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0, ?string $rate_limit_group = null, ?int $max_per_minute = null): void
+    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0, ?string $rate_limit_group = null, ?int $max_per_minute = null, ?bool $auto_dedupe = null): void
     {
         if (!is_resource($this->process) || $this->is_shutting_down) {
             throw new \RuntimeException("[Snerd] Cannot enqueue task: Queue is not running. Call startListening first.");
@@ -91,8 +92,13 @@ class SnerdQueue
         if ($max_per_minute !== null) {
             $payload['max_per_minute'] = $max_per_minute;
         }
+        if ($auto_dedupe !== null) {
+            $payload['auto_dedupe'] = $auto_dedupe;
+        }
 
+        $this->pending_acks[$task_id] = false;
         $this->sendMessage($payload);
+        $this->waitForAck($task_id, 5);
     }
 
     public function tick(int $timeout_seconds = 1): void
@@ -121,6 +127,16 @@ class SnerdQueue
                 if ($msg && isset($msg['action'])) {
                     if ($msg['action'] === 'execute') {
                         $this->handleExecute($msg);
+                    } elseif ($msg['action'] === 'ack') {
+                        if (isset($msg['task_id'])) {
+                            $this->pending_acks[$msg['task_id']] = true;
+                        }
+                    } elseif ($msg['action'] === 'error') {
+                        if (isset($msg['task_id'])) {
+                            $this->pending_acks[$msg['task_id']] = new \RuntimeException($msg['message']);
+                        } else {
+                            echo "[Snerd] Error from engine: {$msg['message']}\n";
+                        }
                     } elseif ($msg['action'] === 'max_retries_reached') {
                         echo "[Snerd] Dead Letter Queue: Task {$msg['task_id']} ({$msg['task_type']}) permanently failed.\n";
                     }
@@ -152,6 +168,26 @@ class SnerdQueue
             
             proc_close($this->process);
         }
+    }
+
+        private function waitForAck(string $task_id, int $timeout_seconds = 5): void
+    {
+        $start = time();
+        while (time() - $start < $timeout_seconds) {
+            if (isset($this->pending_acks[$task_id])) {
+                if ($this->pending_acks[$task_id] === true) {
+                    unset($this->pending_acks[$task_id]);
+                    return;
+                }
+                if ($this->pending_acks[$task_id] instanceof \Exception) {
+                    $e = $this->pending_acks[$task_id];
+                    unset($this->pending_acks[$task_id]);
+                    throw $e;
+                }
+            }
+            $this->tick(1);
+        }
+        throw new \RuntimeException("[Snerd] Timeout waiting for daemon Ack on task $task_id");
     }
 
     private function sendMessage(array $msg): void
