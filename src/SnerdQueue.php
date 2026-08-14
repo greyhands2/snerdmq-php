@@ -12,6 +12,7 @@ class SnerdQueue
     private $pipes;
     private $is_shutting_down = false;
     private $pending_acks = [];
+    public static $current_task_id = null;
 
     public function __construct(?string $binary_path = null, ?string $storage_path = null)
     {
@@ -140,6 +141,8 @@ class SnerdQueue
                         } else {
                             echo "[Snerd] Error from engine: {$msg['message']}\n";
                         }
+                    } elseif ($msg['action'] === 'progress') {
+                        // In PHP, we just ignore incoming progress messages if they aren't meant for us.
                     } elseif ($msg['action'] === 'max_retries_reached') {
                         echo "[Snerd] Dead Letter Queue: Task {$msg['task_id']} ({$msg['task_type']}) permanently failed.\n";
                     }
@@ -221,12 +224,15 @@ class SnerdQueue
         }
 
         try {
+            self::$current_task_id = $task_id;
             call_user_func($this->handlers[$task_type], $task_data);
+            self::$current_task_id = null;
             $this->sendMessage([
                 'action' => 'result',
                 'task_id' => $task_id,
                 'status' => 'success'
             ]);
+            self::$current_task_id = null;
         } catch (\Exception $e) {
             $this->sendMessage([
                 'action' => 'result',
@@ -236,4 +242,35 @@ class SnerdQueue
             ]);
         }
     }
+
+    public function yieldProgress($data): void
+    {
+        if (self::$current_task_id === null) {
+            throw new \RuntimeException("[Snerd] yieldProgress must be called within a task handler context.");
+        }
+        $this->sendMessage([
+            'action' => 'progress',
+            'task_id' => self::$current_task_id,
+            'data' => is_string($data) ? $data : json_encode($data)
+        ]);
+    }
+
+    public function startDashboard(int $port = 8080): void
+    {
+        $routerPath = __DIR__ . '/router.php';
+        $staticPath = __DIR__ . '/../static';
+        if (!file_exists($staticPath)) {
+            $staticPath = __DIR__ . '/../../../../static';
+        }
+        $storage = $this->storage_path ?: './.snerdata';
+        $cmd = "SNERD_STORAGE=" . escapeshellarg($storage) . " php -S 0.0.0.0:$port -t " . escapeshellarg($staticPath) . " " . escapeshellarg($routerPath);
+        
+        echo "[Snerd] Dashboard running on http://localhost:$port\n";
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            pclose(popen("start /B " . $cmd, "r"));
+        } else {
+            exec($cmd . " > /dev/null 2>&1 &");
+        }
+    }
+
 }

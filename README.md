@@ -1,5 +1,6 @@
 <div align="center">
-  <h1>🐘 SnerdMQ PHP SDK</h1>
+  <img src="./assets/Designer-9.png" height="120" alt="SnerdMQ PHP Logo" />
+  <h1>🐘 SnerdMQ PHP SDK v0.2.0</h1>
   <p>A zero-config, C-speed background job queue for modern PHP. Ditch Redis and heavy queue workers for a simple, embedded Rust daemon.</p>
 
   [![Packagist Version](https://img.shields.io/packagist/v/greyhands2/snerdmq)](https://packagist.org/packages/greyhands2/snerdmq)
@@ -7,10 +8,21 @@
 
 This is the official PHP SDK wrapper for **SnerdMQ**. It handles all JSON-RPC communication and `proc_open` orchestration so you can write lightning-fast background jobs in Laravel, Symfony, or vanilla PHP without managing any external databases like Redis, Beanstalkd, or RabbitMQ.
 
-## ✨ Features
+## ✨ v0.2.0 AI-Era Features
+- **Smart API Rate-Limiting**: Natively tracks `rate_limit_group` execution velocity to prevent 429 "Too Many Requests" API errors.
+- **Payload-Hashing Deduplication**: Automatically computes cryptographic hashes to drop duplicate tasks instantly.
+- **Dynamic Float Prioritization**: A native Binary Max-Heap bypasses standard FIFO rules for high urgency tasks.
 - **Ditch Redis**: Gives your PHP apps persistent state, automatic retries, and dead-letter queues right out of the box with zero external infrastructure.
 - **Zero Rust Required**: Our Composer installation script automatically downloads the pre-compiled C-speed Rust binary for your OS.
 - **Non-Blocking**: Uses native PHP `stream_select` to listen to the daemon's output efficiently without pegging your CPU or requiring heavy C-extensions like Swoole.
+
+### ⚙️ Advanced Task Configuration (v0.2.0)
+To power complex AI workflows, tasks can now be configured with advanced orchestration parameters:
+
+* **`auto_dedupe` (`bool`)**: If set to `true`, the daemon computes a cryptographic hash of the `task_type` and `data`. If an identical payload is currently sitting in the queue pending execution, this new task is silently dropped. Excellent for preventing duplicate generative AI requests from trigger-happy users!
+* **`urgency_score` (`float`)**: A value (e.g. `0.99`) used to bypass the standard FIFO queue. SnerdMQ uses a true Binary Max-Heap to continually float tasks with the highest urgency score to the very front of the execution line. Standard tasks default to `0.0`.
+* **`rate_limit_group` (`string`)**: A custom string (e.g. `"openai_api"` or `"db_writes"`) that groups tasks together for backpressure control.
+* **`max_per_minute` (`int`)**: Used in conjunction with `rate_limit_group`. If the queue processes more tasks in this group than the allowed limit within a 60-second rolling window, further tasks in this group are temporarily paused. This natively prevents 429 "Too Many Requests" errors when bursting third-party APIs.
 
 ## 📦 Installation
 
@@ -50,13 +62,17 @@ $queue->registerHandler("send_email", function($data) {
 $queue->startListening();
 echo "SnerdMQ PHP SDK is listening for jobs...\n";
 
-// 4. Enqueue a job from anywhere in your codebase
+// 4. Enqueue a job from anywhere in your codebase (Now with v0.2.0 AI Features!)
 $queue->enqueue(
     "email-123",
     "send_email",
     ["to" => "rasmus@php.net", "subject" => "SnerdMQ Update"],
-    3,    // max retries
-    0.0   // retry after hours
+    3,              // max retries
+    0.0,            // retry after hours
+    "email_api",    // rate_limit_group
+    100,            // max_per_minute
+    true,           // auto_dedupe
+    0.99            // urgency_score
 );
 
 // 5. Run the event loop (usually done in a dedicated worker script)
