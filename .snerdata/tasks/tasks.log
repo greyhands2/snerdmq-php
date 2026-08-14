@@ -1,0 +1,2 @@
+{"taskId":"php-job-1","retryCount":0,"maxRetries":3,"retryAfterHours":0.0,"retryAfterTime":"2026-08-14T00:31:24.042532Z","taskData":"{\"user_id\":\"php_master\",\"message\":\"rasmus\"}","taskType":"test_php_job"}
+{"taskId":"php-job-1","retryCount":0,"maxRetries":3,"retryAfterHours":0.0,"retryAfterTime":"2026-08-14T00:31:24.042532Z","taskData":"{\"user_id\":\"php_master\",\"message\":\"rasmus\"}","taskType":"test_php_job","deletedAt":"2026-08-14T00:31:24.055179Z"}

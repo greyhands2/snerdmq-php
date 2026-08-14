@@ -70,20 +70,29 @@ class SnerdQueue
         }
     }
 
-    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0): void
+    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0, ?string $rate_limit_group = null, ?int $max_per_minute = null): void
     {
         if (!is_resource($this->process) || $this->is_shutting_down) {
             throw new \RuntimeException("[Snerd] Cannot enqueue task: Queue is not running. Call startListening first.");
         }
 
-        $this->sendMessage([
+        $payload = [
             'action' => 'enqueue',
             'task_id' => $task_id,
             'task_type' => $task_type,
             'task_data' => json_encode($data),
             'max_retries' => $max_retries,
             'retry_after_hours' => $retry_after_hours
-        ]);
+        ];
+
+        if ($rate_limit_group !== null) {
+            $payload['rate_limit_group'] = $rate_limit_group;
+        }
+        if ($max_per_minute !== null) {
+            $payload['max_per_minute'] = $max_per_minute;
+        }
+
+        $this->sendMessage($payload);
     }
 
     public function tick(int $timeout_seconds = 1): void
