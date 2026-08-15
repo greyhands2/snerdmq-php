@@ -7,6 +7,7 @@ class SnerdQueue
     private $binary_path;
     private $storage_path;
     private $handlers = [];
+    private $maxRetryHandlers = [];
     
     private $process;
     private $pipes;
@@ -39,6 +40,11 @@ class SnerdQueue
                 'task_type' => $task_type
             ]);
         }
+    }
+
+    public function registerMaxRetryHandler(string $task_type, callable $callback): void
+    {
+        $this->maxRetryHandlers[$task_type] = $callback;
     }
 
     public function startListening(): void
@@ -144,7 +150,17 @@ class SnerdQueue
                     } elseif ($msg['action'] === 'progress') {
                         // In PHP, we just ignore incoming progress messages if they aren't meant for us.
                     } elseif ($msg['action'] === 'max_retries_reached') {
-                        echo "[Snerd] Dead Letter Queue: Task {$msg['task_id']} ({$msg['task_type']}) permanently failed.\n";
+                        if (isset($this->maxRetryHandlers[$msg['task_type']])) {
+                            try {
+                                $raw_data = $msg['task_data'];
+                                $task_data = is_string($raw_data) ? json_decode($raw_data, true) : $raw_data;
+                                call_user_func($this->maxRetryHandlers[$msg['task_type']], $task_data);
+                            } catch (\Exception $e) {
+                                echo "[Snerd] Error in max retry handler for task {$msg['task_id']}: {$e->getMessage()}\n";
+                            }
+                        } else {
+                            echo "[Snerd] Dead Letter Queue: Task {$msg['task_id']} ({$msg['task_type']}) permanently failed.\n";
+                        }
                     }
                 }
             }
