@@ -78,7 +78,7 @@ class SnerdQueue
         }
     }
 
-    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0, ?string $rate_limit_group = null, ?int $max_per_minute = null, ?bool $auto_dedupe = null, ?float $urgency_score = null): void
+    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0, ?string $rate_limit_group = null, ?int $max_per_minute = null, ?bool $auto_dedupe = null, ?float $urgency_score = null, $execute_at = null, ?string $cron = null): void
     {
         if (!is_resource($this->process) || $this->is_shutting_down) {
             throw new \RuntimeException("[Snerd] Cannot enqueue task: Queue is not running. Call startListening first.");
@@ -104,6 +104,17 @@ class SnerdQueue
         }
         if ($urgency_score !== null) {
             $payload['urgency_score'] = $urgency_score;
+        }
+        if ($execute_at !== null) {
+            if ($execute_at instanceof \DateTimeInterface) {
+                // Ensure format matches what backend expects
+                $payload['execute_at'] = $execute_at->format(\DateTime::RFC3339);
+            } else {
+                $payload['execute_at'] = (string)$execute_at;
+            }
+        }
+        if ($cron !== null) {
+            $payload['cron'] = $cron;
         }
 
         $this->pending_acks[$task_id] = false;
