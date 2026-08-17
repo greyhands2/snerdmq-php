@@ -1,6 +1,6 @@
 <div align="center">
   <img src="./assets/Designer-9.png" height="120" alt="SnerdMQ PHP Logo" />
-  <h1>🐘 SnerdMQ PHP SDK v0.3.0</h1>
+  <h1>🐘 SnerdMQ PHP SDK v0.3.1</h1>
   <p>A zero-config, C-speed background job queue for modern PHP. Ditch Redis and heavy queue workers for a simple, embedded Rust daemon.</p>
 
   [![Packagist Version](https://img.shields.io/packagist/v/greyhands2/snerdmq)](https://packagist.org/packages/greyhands2/snerdmq)
@@ -8,7 +8,7 @@
 
 This is the official PHP SDK wrapper for **SnerdMQ**. It handles all JSON-RPC communication and `proc_open` orchestration so you can write lightning-fast background jobs in Laravel, Symfony, or vanilla PHP without managing any external databases like Redis, Beanstalkd, or RabbitMQ.
 
-## ✨ v0.3.0 AI Features
+## ✨ v0.3.1 AI Features
 - **Smart API Rate-Limiting**: Natively tracks `rate_limit_group` execution velocity to prevent 429 "Too Many Requests" API errors.
 - **Payload-Hashing Deduplication**: Automatically computes cryptographic hashes to drop duplicate tasks instantly.
 - **Dynamic Float Prioritization**: A native Binary Max-Heap bypasses standard FIFO rules for high urgency tasks.
@@ -16,7 +16,7 @@ This is the official PHP SDK wrapper for **SnerdMQ**. It handles all JSON-RPC co
 - **Zero Rust Required**: Our Composer installation script automatically downloads the pre-compiled C-speed Rust binary for your OS.
 - **Non-Blocking**: Uses native PHP `stream_select` to listen to the daemon's output efficiently without pegging your CPU or requiring heavy C-extensions like Swoole.
 
-### ⚙️ Advanced Task Configuration (v0.3.0)
+### ⚙️ Advanced Task Configuration (v0.3.1)
 To power complex AI workflows, tasks can now be configured with advanced orchestration parameters:
 
 * **`auto_dedupe` (`bool`)**: If set to `true`, the daemon computes a cryptographic hash of the `task_type` and `data`. If an identical payload is currently sitting in the queue pending execution, this new task is silently dropped. Excellent for preventing duplicate generative AI requests from trigger-happy users!
@@ -25,7 +25,14 @@ To power complex AI workflows, tasks can now be configured with advanced orchest
 * **`max_per_minute` (`int`)**: Used in conjunction with `rate_limit_group`. If the queue processes more tasks in this group than the allowed limit within a 60-second rolling window, further tasks in this group are temporarily paused. This natively prevents 429 "Too Many Requests" errors when bursting third-party APIs.
 * **`execute_at` (`string` | `DateTimeInterface`)**: A timestamp of when the job should be executed in the future.
 * **`cron` (`string`)**: A cron expression (e.g. `"0 * * * *"`) for recurring jobs. Shorthands like `"2h"` or `"10m"` are also supported.
-* **`webhookUrl` (`string`)**: By providing a webhook URL, SnerdMQ will completely bypass your local PHP closures and dispatch the task payload via an HTTP POST request directly to the specified URL.
+* **`webhook_url` (`string`)**: Optional URL to receive the task payload via POST request instead of local execution.
+* **`max_execution_seconds` (`int`)**: Optional hard timeout in seconds. If execution takes longer, it's marked as failed. Note: Requires the `pcntl` extension, which is not supported on Windows. On Windows, the timeout is ignored locally but still enforced by the Rust daemon.
+
+### Note on Hard Timeouts (`max_execution_seconds`)
+The PHP SDK uses the `pcntl_alarm` extension to enforce hard timeouts locally for runaway handlers. 
+- **Requirements**: Your PHP environment must have the `pcntl` extension enabled.
+- **Windows**: `pcntl` is not supported on Windows. On Windows, the SDK will skip local timeout enforcement, but the background Rust daemon will still forcefully time out the IPC channel if it takes too long.
+- **Side effects**: Since `pcntl_alarm` uses process-level alarms, avoid using other `pcntl_alarm` calls within your handlers to prevent conflicts.
 
 ### 🌐 HTTP Webhooks (Serverless Execution)
 You can configure a task to execute externally via an HTTP POST request. By setting a `webhookUrl`, the internal background processor will skip any registered handlers (`queue->registerHandler`) and directly invoke the HTTP endpoint.
