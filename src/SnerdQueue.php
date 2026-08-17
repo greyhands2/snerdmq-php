@@ -78,7 +78,7 @@ class SnerdQueue
         }
     }
 
-    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0, ?string $rate_limit_group = null, ?int $max_per_minute = null, ?bool $auto_dedupe = null, ?float $urgency_score = null, $execute_at = null, ?string $cron = null, ?string $webhook_url = null): void
+    public function enqueue(string $task_id, string $task_type, array $data, int $max_retries = 3, float $retry_after_hours = 0.0, ?string $rate_limit_group = null, ?int $max_per_minute = null, ?bool $auto_dedupe = null, ?float $urgency_score = null, $execute_at = null, ?string $cron = null, ?string $webhook_url = null, ?int $max_execution_seconds = null): void
     {
         if (!is_resource($this->process) || $this->is_shutting_down) {
             throw new \RuntimeException("[Snerd] Cannot enqueue task: Queue is not running. Call startListening first.");
@@ -118,6 +118,9 @@ class SnerdQueue
         }
         if ($webhook_url !== null) {
             $payload['webhook_url'] = $webhook_url;
+        }
+        if ($max_execution_seconds !== null) {
+            $payload['max_execution_seconds'] = $max_execution_seconds;
         }
 
         $this->pending_acks[$task_id] = false;
@@ -239,6 +242,7 @@ class SnerdQueue
     {
         $task_id = $msg['task_id'];
         $task_type = $msg['task_type'];
+        $max_execution_seconds = $msg['max_execution_seconds'] ?? null;
         
         $raw_data = $msg['task_data'];
         $task_data = is_string($raw_data) ? json_decode($raw_data, true) : $raw_data;
@@ -255,7 +259,22 @@ class SnerdQueue
 
         try {
             self::$current_task_id = $task_id;
+            
+            if ($max_execution_seconds !== null && function_exists('pcntl_alarm')) {
+                pcntl_async_signals(true);
+                pcntl_signal(SIGALRM, function() use ($max_execution_seconds) {
+                    throw new \RuntimeException("Task execution timed out after {$max_execution_seconds} seconds");
+                });
+                pcntl_alarm($max_execution_seconds);
+            }
+            
             call_user_func($this->handlers[$task_type], $task_data);
+            
+            if ($max_execution_seconds !== null && function_exists('pcntl_alarm')) {
+                pcntl_alarm(0);
+                pcntl_signal(SIGALRM, SIG_DFL);
+            }
+            
             self::$current_task_id = null;
             $this->sendMessage([
                 'action' => 'result',
