@@ -13,6 +13,7 @@ class SnerdQueue
     private $pipes;
     private $is_shutting_down = false;
     private $pending_acks = [];
+    private $tick_activity = false;
     public static $current_task_id = null;
 
     public function __construct(?string $binary_path = null, ?string $storage_path = null)
@@ -152,6 +153,7 @@ class SnerdQueue
                 
                 $msg = json_decode($line, true);
                 if ($msg && isset($msg['action'])) {
+                    $this->tick_activity = true;
                     if ($msg['action'] === 'execute') {
                         $this->handleExecute($msg);
                     } elseif ($msg['action'] === 'ack') {
@@ -165,7 +167,9 @@ class SnerdQueue
                             echo "[Snerd] Error from engine: {$msg['message']}\n";
                         }
                     } elseif ($msg['action'] === 'progress') {
-                        // In PHP, we just ignore incoming progress messages if they aren't meant for us.
+                        // Persist progress events so the dashboard (which polls
+                        // via HTTP in PHP) can display them in the Progress Stream.
+                        $this->appendProgressEvent($msg);
                     } elseif ($msg['action'] === 'max_retries_reached') {
                         if (isset($this->maxRetryHandlers[$msg['task_type']])) {
                             try {
@@ -224,7 +228,13 @@ class SnerdQueue
                     throw $e;
                 }
             }
+            $this->tick_activity = false;
             $this->tick(1);
+            if ($this->tick_activity) {
+                // The queue was busy executing real work (e.g. other task handlers),
+                // so don't count that time against the ack timeout.
+                $start = time();
+            }
         }
         throw new \RuntimeException("[Snerd] Timeout waiting for daemon Ack on task $task_id");
     }
@@ -236,6 +246,27 @@ class SnerdQueue
         $json = json_encode($msg) . "\n";
         fwrite($this->pipes[0], $json);
         fflush($this->pipes[0]);
+    }
+
+    private function appendProgressEvent(array $msg): void
+    {
+        $dir = $this->storage_path ?: './.snerdata';
+        if (!is_dir($dir)) return;
+        $path = $dir . '/progress_events.log';
+
+        $event = json_encode([
+            'ts' => microtime(true),
+            'task_id' => $msg['task_id'] ?? null,
+            'data' => $msg['data'] ?? ''
+        ]) . "\n";
+        file_put_contents($path, $event, FILE_APPEND | LOCK_EX);
+
+        // Keep the file bounded: retain only the most recent events
+        if (filesize($path) > 512 * 1024) {
+            $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            $tail = array_slice($lines, -200);
+            file_put_contents($path, implode("\n", $tail) . "\n", LOCK_EX);
+        }
     }
 
     private function handleExecute(array $msg): void

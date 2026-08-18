@@ -5,19 +5,41 @@ header('Access-Control-Allow-Origin: *');
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $storage = getenv('SNERD_STORAGE') ?: './.snerdata';
 $tasksPath = $storage . '/tasks/tasks.log';
+$progressPath = $storage . '/progress_events.log';
 
-if ($uri === '/api/stats') {
+if ($uri === '/api/progress') {
+    $events = [];
+    if (file_exists($progressPath)) {
+        $lines = file($progressPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach (array_slice($lines, -100) as $line) {
+            $ev = json_decode($line, true);
+            if ($ev && isset($ev['ts'])) {
+                $events[] = $ev;
+            }
+        }
+    }
+    header('Content-Type: application/json');
+    echo json_encode($events);
+    exit;
+} elseif ($uri === '/api/stats') {
     $enqueued = 0; $processed = 0; $failed = 0;
+    $tasksMap = [];
     if (file_exists($tasksPath)) {
         $lines = file($tasksPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         foreach ($lines as $line) {
-            $enqueued++;
-            if (strpos($line, '"deletedAt":"') !== false) {
-                if (strpos($line, '"lastJobError":"') !== false) {
-                    $failed++;
-                } else {
-                    $processed++;
-                }
+            $data = json_decode($line, true);
+            if ($data && isset($data['taskId'])) {
+                $tasksMap[$data['taskId']] = $data;
+            }
+        }
+    }
+    foreach ($tasksMap as $data) {
+        $enqueued++;
+        if (isset($data['deletedAt'])) {
+            if (isset($data['LastJobError'])) {
+                $failed++;
+            } else {
+                $processed++;
             }
         }
     }
@@ -38,9 +60,23 @@ if ($uri === '/api/stats') {
     $res = [];
     foreach ($tasksMap as $data) {
         if (isset($data['deletedAt'])) {
-            $status = isset($data['lastJobError']) ? 'failed' : 'completed';
+            if (isset($data['LastJobError']) && ($data['retryCount'] ?? 0) >= ($data['maxRetries'] ?? 3)) {
+                $status = 'dead_letter';
+            } elseif (isset($data['LastJobError'])) {
+                $status = 'failed';
+            } else {
+                $status = 'completed';
+            }
+        } elseif (isset($data['LastJobError'])) {
+            $status = 'failed';
         } else {
-            $status = isset($data['lastJobError']) ? 'failed' : 'queued';
+            $status = 'queued';
+            if (!empty($data['executeAt'])) {
+                $execTime = strtotime($data['executeAt']);
+                if ($execTime !== false && $execTime <= time()) {
+                    $status = 'active';
+                }
+            }
         }
         $res[] = [
             'id' => $data['taskId'],
@@ -49,7 +85,10 @@ if ($uri === '/api/stats') {
             'progress' => 0,
             'retryCount' => $data['retryCount'] ?? 0,
             'maxRetries' => $data['maxRetries'] ?? 3,
-            'retryAfterTime' => $data['retryAfterTime'] ?? null
+            'retryAfterTime' => $data['retryAfterTime'] ?? null,
+            'cronExpression' => $data['cronExpression'] ?? null,
+            'webhookUrl' => $data['webhookUrl'] ?? null,
+            'maxExecutionSeconds' => $data['maxExecutionSeconds'] ?? null
         ];
     }
     header('Content-Type: application/json');
