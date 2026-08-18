@@ -1,5 +1,5 @@
 {
-    "name": "greyhands2/snerdmq",
+    "name": "speed-nerd/snerdmq",
     "description": "A zero-config, persistent background job queue for PHP. Ditch Redis for a lightweight Rust daemon.",
     "type": "library",
     "license": "MIT",

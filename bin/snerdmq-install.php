@@ -1,6 +1,6 @@
 <?php
 
-$repo = "greyhands2/snerdmq";
+$repo = "speed-nerd/snerdmq";
 $version = "v0.1.1";
 
 $os = PHP_OS_FAMILY;

@@ -3,7 +3,7 @@
   <h1>🐘 SnerdMQ PHP SDK v0.3.2</h1>
   <p>A zero-config, C-speed background job queue for modern PHP. Ditch Redis and heavy queue workers for a simple, embedded Rust daemon.</p>
 
-  [![Packagist Version](https://img.shields.io/packagist/v/greyhands2/snerdmq)](https://packagist.org/packages/greyhands2/snerdmq)
+  [![Packagist Version](https://img.shields.io/packagist/v/speed-nerd/snerdmq)](https://packagist.org/packages/speed-nerd/snerdmq)
 </div>
 
 This is the official PHP SDK wrapper for **SnerdMQ**. It handles all JSON-RPC communication and `proc_open` orchestration so you can write lightning-fast background jobs in Laravel, Symfony, or vanilla PHP without managing any external databases like Redis, Beanstalkd, or RabbitMQ.
@@ -52,7 +52,7 @@ When using the new scheduling features, it is important to understand the differ
 Installing the SDK is a simple one-step process via Composer:
 
 ```bash
-composer require greyhands2/snerdmq
+composer require speed-nerd/snerdmq
 ```
 
 *Note: The moment you run this command, Composer will automatically execute our post-install hook to download the correct highly-optimized SnerdMQ binary for your operating system (macOS/Linux/Windows) directly into the `bin/` directory!*
