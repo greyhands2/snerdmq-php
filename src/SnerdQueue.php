@@ -243,9 +243,13 @@ class SnerdQueue
     {
         if ($this->is_shutting_down || !is_resource($this->process)) return;
 
+        // Check if daemon process is still alive
+        $status = proc_get_status($this->process);
+        if (!$status['running']) return;
+
         $json = json_encode($msg) . "\n";
-        fwrite($this->pipes[0], $json);
-        fflush($this->pipes[0]);
+        @fwrite($this->pipes[0], $json);
+        @fflush($this->pipes[0]);
     }
 
     private function appendProgressEvent(array $msg): void
