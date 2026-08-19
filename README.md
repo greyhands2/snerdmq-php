@@ -1,6 +1,6 @@
 <div align="center">
   <img src="./assets/Designer-9.png" height="120" alt="SnerdMQ PHP Logo" />
-  <h1>🐘 SnerdMQ PHP SDK v0.3.2</h1>
+  <h1>🐘 SnerdMQ PHP SDK v0.3.3</h1>
   <p>A zero-config, C-speed background job queue for modern PHP. Ditch Redis and heavy queue workers for a simple, embedded Rust daemon.</p>
 
   [![Packagist Version](https://img.shields.io/packagist/v/speed-nerd/snerdmq)](https://packagist.org/packages/speed-nerd/snerdmq)
@@ -9,7 +9,7 @@
 
 This is the official PHP SDK wrapper for **SnerdMQ**. It handles all JSON-RPC communication and `proc_open` orchestration so you can write lightning-fast background jobs in Laravel, Symfony, or vanilla PHP without managing any external databases like Redis, Beanstalkd, or RabbitMQ.
 
-## ✨ v0.3.2 AI Features
+## ✨ v0.3.3 AI Features
 - **Smart API Rate-Limiting**: Natively tracks `rate_limit_group` execution velocity to prevent 429 "Too Many Requests" API errors.
 - **Payload-Hashing Deduplication**: Automatically computes cryptographic hashes to drop duplicate tasks instantly.
 - **Dynamic Float Prioritization**: A native Binary Max-Heap bypasses standard FIFO rules for high urgency tasks.
@@ -18,7 +18,7 @@ This is the official PHP SDK wrapper for **SnerdMQ**. It handles all JSON-RPC co
 - **Zero Rust Required**: Our Composer installation script automatically downloads the pre-compiled C-speed Rust binary for your OS.
 - **Non-Blocking**: Uses native PHP `stream_select` to listen to the daemon's output efficiently without pegging your CPU or requiring heavy C-extensions like Swoole.
 
-### ⚙️ Advanced Task Configuration (v0.3.2)
+### ⚙️ Advanced Task Configuration (v0.3.3)
 To power complex AI workflows, tasks can now be configured with advanced orchestration parameters:
 
 * **`auto_dedupe` (`bool`)**: If set to `true`, the daemon computes a cryptographic hash of the `task_type` and `data`. If an identical payload is currently sitting in the queue pending execution, this new task is silently dropped. Excellent for preventing duplicate generative AI requests from trigger-happy users!
@@ -178,16 +178,78 @@ $queue->registerHandler("generate_report", function($data) use ($queue) {
 
 ---
 
-## 🌍 Advanced: Distributed Scaling
+## 🧩 Queue Topology: One Queue or Many?
 
-By default, the SDK spins up the Rust daemon which writes the queue to a local file (`.snerdata/tasks/tasks.log`). 
+### ✅ Recommended: one queue, all job types (singleton)
 
-If you have multiple PHP microservices running behind a load balancer and want them to share the exact same queue, simply mount a **Shared Network Drive** (like AWS EFS or NFS) to all of your servers and pass the shared path:
+Each `SnerdQueue` client spawns its own Rust daemon and **exclusively owns** its storage directory (`.snerdata` by default). The recommended pattern is **one client per application process**: register every job type on it and serve a single shared dashboard:
 
 ```php
-// All of your PHP servers point to the exact same shared file!
-// SnerdMQ's native OS file-locking guarantees zero data corruption.
-$queue = new SnerdQueue(null, "/mnt/aws-efs-shared-drive/snerd_tasks.log");
+<?php
+
+require 'vendor/autoload.php';
+use Snerdmq\SnerdQueue;
+
+// ONE queue client for the whole app
+$queue = new SnerdQueue();
+
+// Job type #1: image processing
+$queue->registerHandler("process_image", function($data) {
+    echo "Processing image: {$data['image_id']}\n";
+});
+
+// Job type #2: OTP emails — same queue, same daemon
+$queue->registerHandler("send_otp_email", function($data) {
+    echo "Sending OTP to: {$data['to']}\n";
+});
+
+$queue->startListening();
+
+// Both job types flow through the exact same queue
+$queue->enqueue("img-1", "process_image", ["image_id" => "abc123"], 3, 0.5);
+$queue->enqueue("otp-1", "send_otp_email", ["to" => "john@wick.com"], 3, 0.5);
+
+// ONE dashboard shows every job type
+$queue->startDashboard(8080);
 ```
+
+All job types share everything: the same persistent job log, retry/DLQ pipeline, rate-limit state, stats — and one dashboard at `http://localhost:8080` showing all of them.
+
+### 🚫 Same storage twice = fails fast
+
+The daemon takes an **exclusive OS-level lock** on its storage directory at startup. A second client on the same storage fails instead of silently double-executing your jobs:
+
+```php
+$first = new SnerdQueue();   // ✅ owns .snerdata
+$second = new SnerdQueue();  // ❌ daemon refuses to start:
+// "Another daemon is already running on storage '.snerdata'"
+```
+
+This applies across processes too — multiple long-running PHP CLI workers on the same machine each spawn their own daemon, so each worker needs its own `$storage_path`.
+
+### 🔀 Need multiple queues? Give each one its own storage
+
+```php
+$images = new SnerdQueue(null, ".snerdata-images");
+$emails = new SnerdQueue(null, ".snerdata-emails");
+
+$images->startDashboard(8080); // separate dashboards, so separate ports
+$emails->startDashboard(8081);
+```
+
+Now you have two fully independent engines: separate job logs, separate rate-limit state, separate dashboards. Only split when you actually need isolation (different teams, different retention, independent monitoring) — otherwise the singleton is simpler and recommended.
+
+---
+
+## 🌍 Advanced: Distributed Scaling
+
+Because the daemon exclusively locks its storage directory, scaling horizontally means **one queue per server**, each with its own storage. Your load balancer routes requests across servers, and every server processes the jobs it enqueued:
+
+```php
+// Each server runs its own daemon on its own storage dir (local disk works fine)
+$queue = new SnerdQueue(null, "/var/data/snerd"); // per-server storage
+```
+
+A shared network drive (AWS EFS or NFS) is still a good home for that storage when a single instance needs durable state — e.g. a container that restarts but must keep its queue. Native OS file locking (`flock`) keeps writes safe — no Redis required.
 
 *Built with ❤️ for John Wick tier engineering.*
